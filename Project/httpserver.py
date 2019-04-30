@@ -24,7 +24,10 @@ class Server:
 
     def handle_request(self, request):
         req = Request(request=request)
-        print(req.link)
+
+        # If private return private
+        if req.status == "private":
+            return "private"
         try:
             filename = "htdocs" + req.link
             # Get type of file
@@ -36,13 +39,11 @@ class Server:
             else:
                 # Web page
                 file = open(filename, "r")
-
             # Read contents and close file
             contents = file.read()
             file.close()
         except FileNotFoundError:
             return None
-
         return contents
 
     def main_loop(self):
@@ -58,11 +59,16 @@ class Server:
             if content is None:
                 response = Response(status="HTTP/1.0 404 NOT FOUND", content="File not found")
                 client_connection.sendall(response.http_response().encode())
-            # Build the response
+            # If 403 Forbidden
+            elif content is "private":
+                response = Response(status="HTTP/1.0 403 Forbidden", content="Can't access this file")
+                client_connection.sendall(response.http_response().encode())
+            # If 200 OK
             else:
                 status = "HTTP/1.1 200 OK"
                 content_length = len(content)
                 response = Response(status=status, content_length=content_length, content=content)
+
                 # If image or text
                 if isinstance(content, bytes):
                     client_connection.sendall(response.http_response(type="image"))
@@ -111,13 +117,30 @@ class Request:
     def __method_and_link__(self):
         headers = self.request.split("\n")
         first_line = headers[0]
+        print(first_line)
         first_line_split = first_line.split(" ")
         self.method = first_line_split[0]
-        self.link = first_line_split[1]
-        # If link is with nothing after the last "/", then index.html should be returned
-        last = self.link.split("/")
-        if last[len(last) - 1] == "":
+        if len(first_line_split) > 1:
+            self.link = first_line_split[1]
+        else:
             self.link = "/index.html"
+
+        # Get the file link and all the folders that the file is in
+        folders_file = self.link.split("/")
+        self.file = folders_file[len(folders_file) - 1]
+        self.folders = folders_file[1:len(folders_file) - 1]
+
+        # If file is "/" then it should be redirected to the index
+        if self.link == "/":
+            self.link = "/index.html"
+            self.file = "index.html"
+
+        # Check if client can access this file
+        if "private" in self.folders:
+            self.status = "private"
+        else:
+            self.status = "public"
+
         # File type is on the link, being the last thing after the dot(.)
         split_link = self.link.split(".")
         self.file_type = split_link[len(split_link) - 1]
