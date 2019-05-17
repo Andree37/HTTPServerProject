@@ -25,13 +25,15 @@ class Logger:
 
     # Write to file the message (IP and URL)
     def write_to_file(self, message):
+        file = None
         try:
             file = open(self.filename, "a")
             file.write(message)
         except FileNotFoundError:
             print("Couldn't find file")
         finally:
-            file.close()
+            if file is not None:
+                file.close()
 
 
 # Class Statistics, responsible for keeping a statistics of the cache
@@ -66,6 +68,7 @@ class Statistics:
         # Search on dictionary the most visited
         for v in visited_links.values():
             times_visited = v["times"]
+
             position = 0
             for link in most_visited:
                 link = link["link"]

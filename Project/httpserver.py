@@ -49,6 +49,10 @@ def do_post(req):
         pair = arg.split("=")
         arg_key = pair[0]
         arg_value = pair[1]
+
+        # check if value is valid, raise ValueError otherwise
+        if arg_value is "":
+            raise ValueError
         new_values[arg_key] = arg_value
 
     # Add new user input into the json file
@@ -65,6 +69,11 @@ def do_post(req):
 
     return Response(status="HTTP/1.1 200 OK", content_type="application/json",
                     content=output, referer=req.referer, content_length=len(output))
+
+
+def start_thread(function, args=()):
+    thread = Thread(target=function, args=args)
+    thread.start()
 
 
 class Server:
@@ -85,9 +94,14 @@ class Server:
         req = Request(request=request)
         print(request)
 
-        # If reponse is in cache, then return this response already created
+        if req.link is None:
+            return Response(status="HTTP/1.1 400 BAD REQUEST", content="Bad user request",
+                            connection="close", referer=req.referer)
+
+        # If response is in cache, then return this response already created
         response = self.server_statistics.get_link_in_most_visited(req.link)
         if response is not None:
+            start_thread(function=self.server_statistics.visit_link, args=[req.link, response])
             return response
 
         # simulate a long response from server
@@ -95,7 +109,11 @@ class Server:
 
         # Check for POST
         if req.method == "POST":
-            return do_post(req)
+            try:
+                return do_post(req)
+            except ValueError:
+                return Response(status="HTTP/1.1 400 BAD REQUEST", content="Bad user request",
+                                connection="close", referer=req.referer)
 
         # If private return 403
         if req.status == "private":
@@ -133,13 +151,27 @@ class Server:
         response = Response(status="HTTP/1.1 200 OK", content_length=len(contents), content_type=req.file_type,
                             content=contents, connection=req.connection, referer=req.referer)
 
+        # Create thread so client doesn't get stuck and continues
+        # Save the link to the cache
+        start_thread(function=self.add_to_cache, args=[response, req.link])
+
+        return response
+
+    def add_to_cache(self, response, link):
         # Save in cache the response
         self.sem_stats.acquire()
-        response_dic = {"response": response, "link": req.link}
+        response_dic = {"response": response, "link": link}
         self.cache.append(response_dic)
         self.sem_stats.release()
 
-        return response
+        # End the thread
+        return 0
+
+    def visit_link(self, link, response):
+        self.server_statistics.visit_link(link=link, response=response)
+
+        # End the thread
+        return 0
 
     def stats_handle(self):
         while True:
@@ -164,13 +196,12 @@ class Server:
 
     def main_loop(self):
         # Create thread for statistics
-        stats_thread = Thread(target=self.stats_handle, args=[])
-        stats_thread.start()
+        start_thread(function=self.stats_handle)
+
         while True:
             # Wait for client connections and creates client threads
             client_connection, client_address = self.server_socket.accept()
-            thread = Thread(target=self.handle_client, args=[client_connection])
-            thread.start()
+            start_thread(function=self.handle_client, args=[client_connection])
 
     def handle_client(self, connection):
         # Logger for writing to text file
@@ -197,12 +228,8 @@ class Server:
             # Shuts connection with the client after 10 seconds
             timer.cancel()
 
-            # If image or text
-            if isinstance(response.content, bytes):
-                connection.sendall(response.http_response(type="image"))
-            else:
-                connection.sendall(response.http_response().encode())
-
+            # send response to the client
+            connection.sendall(response.http_response())
             # Connection check
             if response.connection == "close":
                 close_client(connection)
@@ -223,7 +250,7 @@ class Response:
         self.connection = connection
         self.referer = referer
 
-    def http_response(self, type="text"):
+    def http_response(self):
         response = f"{self.status}\n"
 
         if self.content_length is not None:
@@ -242,12 +269,15 @@ class Response:
 
         # If response is text or image, has to be taken cared differently
         if self.content is not None:
-            if type == "text":
+            if isinstance(self.content, bytes):
+                final_response = response.encode()
+                final_response += self.content
+            else:
                 response += self.content
-            elif type == "image":
-                response = response.encode()
-                response += self.content
-        return response
+                final_response = response.encode()
+        else:
+            final_response = response.encode()
+        return final_response
 
 
 class Request:
@@ -263,7 +293,11 @@ class Request:
         if len(first_line_split) > 1:
             self.link = first_line_split[1]
         else:
-            self.link = "/index.html"
+            self.link = None
+
+        # In case of a bad request with no link, returns
+        if self.link is None:
+            return
 
         # Get the file link and all the folders that the file is in
         folders_file = self.link.split("/")
