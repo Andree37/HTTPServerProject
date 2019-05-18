@@ -85,7 +85,7 @@ class Server:
         self.server_socket.listen(1)
         print('Listening on port %s ...' % SERVER_PORT)
         # Image types
-        self.image_types = ["png", "jpeg", "jpg"]
+        self.image_types = ["png", "jpeg", "jpg", "gif", "mp4", "MP4"]
         self.cache = []
         self.sem_stats = Semaphore()
         self.server_statistics = Statistics()
@@ -96,7 +96,7 @@ class Server:
 
         if req.link is None:
             return Response(status="HTTP/1.1 400 BAD REQUEST", content="Bad user request",
-                            connection="close", referer=req.referer)
+                            connection="close")
 
         # If response is in cache, then return this response already created
         response = self.server_statistics.get_link_in_most_visited(req.link)
