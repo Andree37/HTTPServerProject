@@ -52,20 +52,12 @@ def do_post(req, connection):
         cookies = []
         for k, v in new_values.items():
             cookie = f"{k}={v}"
-
-            if cookie not in cookies:
-                cookies.append(cookie)
-
-            else:
-                for i in cookies:
-                    cookie_split = cookies[i].split("=")
-                    if cookie_split[1] == v :
-                        cookies[i]= None
+            cookies.append(cookie)
 
         # Finally add the address of the client as a cookie
         address = connection.getpeername()[0]
-        cookies.append(address)
-        print(cookies)
+        address_cookie = f"address={address}"
+        cookies.append(address_cookie)
         content = "Logged in, if admin then u can access private file"
         return Response(status="HTTP/1.1 200 OK", content_type="text", content=content, content_length=len(content),
                         cookie=cookies, host=req.host)
@@ -258,7 +250,7 @@ class Server:
             try:
                 request = connection.recv(1024).decode()
                 response = self.handle_request(request=request, connection=connection)
-            except ConnectionAbortedError:
+            except (ConnectionAbortedError, ConnectionResetError):
                 # Exits the while and finishes the thread
                 return 0
 
