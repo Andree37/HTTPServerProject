@@ -96,6 +96,3 @@ class Statistics:
                     return item["response"]
         return None
 
-class Streams:
-    def __init__(self):
-        self.streamaddrs = {}
