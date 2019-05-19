@@ -52,12 +52,20 @@ def do_post(req, connection):
         cookies = []
         for k, v in new_values.items():
             cookie = f"{k}={v}"
-            cookies.append(cookie)
+
+            if cookie not in cookies:
+                cookies.append(cookie)
+
+            else:
+                for i in cookies:
+                    cookie_split = cookies[i].split("=")
+                    if cookie_split[1] == v :
+                        cookies[i]= None
 
         # Finally add the address of the client as a cookie
         address = connection.getpeername()[0]
         cookies.append(address)
-
+        print(cookies)
         content = "Logged in, if admin then u can access private file"
         return Response(status="HTTP/1.1 200 OK", content_type="text", content=content, content_length=len(content),
                         cookie=cookies, host=req.host)
@@ -184,14 +192,13 @@ class Server:
 
         # Create thread so client doesn't get stuck and continues
         # Save the link to the cache
-        start_thread(function=self.add_to_cache, args=[response, req.link])
+        if req.status != "private":
+            start_thread(function=self.add_to_cache, args=[response, req.link])
 
         return response
 
     def add_to_cache(self, response, link):
-        # private pages shouldn't be saved in the cache
-        if response.status == "private":
-            return
+
 
         # Save in cache the response
         self.sem_stats.acquire()
@@ -380,6 +387,7 @@ class Request:
                 host = split_head[1::]
             if split_head[0] == "Cookie":
                 whole_cookie = split_head[1]
+
                 split_cookie = whole_cookie.split(";")
 
                 username_cookie = split_cookie[0].split("=")
