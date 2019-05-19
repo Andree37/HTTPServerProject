@@ -22,24 +22,10 @@ def close_client(connection):
 
 def do_head(req, contents):
     return Response(status="HTTP/1.1 200 OK", content_length=len(contents), content_type=req.file_type,
-                    connection=req.connection, referer=req.referer)
+                    connection=req.connection, referer=req.referer, host=req.host)
 
 
-def do_post(req):
-    # Dictionary and list for the json file
-    top_dic = {}
-    persons = []
-    # Open json file if exists to mantain data
-    try:
-        file = open("name.json", "r", encoding="utf-8")
-        json_str = str(file.read())
-        if json_str is not "":
-            top_dic = json.loads(json_str)
-            persons = top_dic["persons"]
-        file.close()
-    except FileNotFoundError:
-        print("File not found")
-
+def get_user_input(req):
     # Get new user input
     body = req.body.split("&")
     new_values = {}
@@ -55,20 +41,58 @@ def do_post(req):
             raise ValueError
         new_values[arg_key] = arg_value
 
-    # Add new user input into the json file
-    persons.append(new_values)
-    top_dic["persons"] = persons
+    return new_values
 
-    # Writes to file so the data stays
-    file = open("name.json", "w", encoding="utf-8")
-    json.dump(top_dic, file)
-    file.close()
 
-    # Write to output
-    output = json.dumps(top_dic)
+def do_post(req, connection):
+    if req.link == "/login":
+        new_values = get_user_input(req)
 
-    return Response(status="HTTP/1.1 200 OK", content_type="application/json",
-                    content=output, referer=req.referer, content_length=len(output))
+        # Build cookies
+        cookies = []
+        for k, v in new_values.items():
+            cookie = f"{k}={v}"
+            cookies.append(cookie)
+
+        # Finally add the address of the client as a cookie
+        address = connection.getpeername()[0]
+        cookies.append(address)
+
+        content = "Logged in, if admin then u can access private file"
+        return Response(status="HTTP/1.1 200 OK", content_type="text", content=content, content_length=len(content),
+                        cookie=cookies, host=req.host)
+
+    if req.link == "/form":
+        # Dictionary and list for the json file
+        top_dic = {}
+        persons = []
+        # Open json file if exists to mantain data
+        try:
+            file = open("name.json", "r", encoding="utf-8")
+            json_str = str(file.read())
+            if json_str is not "":
+                top_dic = json.loads(json_str)
+                persons = top_dic["persons"]
+            file.close()
+        except FileNotFoundError:
+            print("File not found")
+
+        new_values = get_user_input(req)
+
+        # Add new user input into the json file
+        persons.append(new_values)
+        top_dic["persons"] = persons
+
+        # Writes to file so the data stays
+        file = open("name.json", "w", encoding="utf-8")
+        json.dump(top_dic, file)
+        file.close()
+
+        # Write to output
+        output = json.dumps(top_dic)
+
+        return Response(status="HTTP/1.1 200 OK", content_type="application/json",
+                        content=output, referer=req.referer, content_length=len(output), host=req.host)
 
 
 def start_thread(function, args=()):
@@ -89,8 +113,10 @@ class Server:
         self.cache = []
         self.sem_stats = Semaphore()
         self.server_statistics = Statistics()
+        # localhost with username admin should be the only one that is admin
+        self.admin_list = [{"admin": "127.0.0.1"}]
 
-    def handle_request(self, request):
+    def handle_request(self, request, connection):
         req = Request(request=request)
         print(request)
 
@@ -110,15 +136,20 @@ class Server:
         # Check for POST
         if req.method == "POST":
             try:
-                return do_post(req)
+                return do_post(req, connection)
             except ValueError:
                 return Response(status="HTTP/1.1 400 BAD REQUEST", content="Bad user request",
-                                connection="close", referer=req.referer)
+                                connection="close", referer=req.referer, host=req.host)
 
         # If private return 403
         if req.status == "private":
-            return Response(status="HTTP/1.0 403 Forbidden", content="Can't access this file",
-                            connection="close", referer=req.referer)
+            # Check if client cookie is in the admin list
+            for user in self.admin_list:
+                for k, v in user.items():
+                    if k != req.username or v != req.address:
+                        return Response(status="HTTP/1.0 403 Forbidden", content="Can't access this file",
+                            connection="close", referer=req.referer, host=req.host)
+
         filename = "htdocs" + req.link
         # Get type of file
         filename_type = req.file_type
@@ -140,16 +171,16 @@ class Server:
 
         except PermissionError:
             return Response(status="HTTP/1.1 400 BAD REQUEST", content="Bad user request",
-                            connection="close", referer=req.referer)
+                            connection="close", referer=req.referer, host=req.host)
         except FileNotFoundError:
             # If None return 404
             return Response(status="HTTP/1.1 404 NOT FOUND", content="File not found",
-                            connection="close", referer=req.referer)
+                            connection="close", referer=req.referer, host=req.host)
         finally:
             if file is not None:
                 file.close()
         response = Response(status="HTTP/1.1 200 OK", content_length=len(contents), content_type=req.file_type,
-                            content=contents, connection=req.connection, referer=req.referer)
+                            content=contents, connection=req.connection, referer=req.referer, host=req.host)
 
         # Create thread so client doesn't get stuck and continues
         # Save the link to the cache
@@ -215,7 +246,7 @@ class Server:
             # Handle client request
             try:
                 request = connection.recv(1024).decode()
-                response = self.handle_request(request)
+                response = self.handle_request(request=request, connection=connection)
             except ConnectionAbortedError:
                 # Exits the while and finishes the thread
                 return 0
@@ -241,7 +272,8 @@ class Server:
 
 
 class Response:
-    def __init__(self, status="", content_length=None, content_type=None, content=None, connection=None, referer=None):
+    def __init__(self, status="", content_length=None, content_type=None, content=None, connection=None, referer=None,
+                 cookie=None, host=None):
         self.status = status
         self.content_length = content_length
         self.content_type = content_type
@@ -249,6 +281,8 @@ class Response:
         self.content = content
         self.connection = connection
         self.referer = referer
+        self.cookie = cookie
+        self.host = host
 
     def http_response(self):
         response = f"{self.status}\n"
@@ -264,6 +298,13 @@ class Response:
 
         if self.connection is not None:
             response += f"Connection:{self.connection}\n"
+
+        if self.cookie:
+            for cookie in self.cookie:
+                response += f"Set-Cookie:{cookie}\n"
+
+        if self.host is not None:
+            response += f"Host: {self.host}\n"
 
         response += "\n"
 
@@ -319,18 +360,36 @@ class Request:
         split_link = self.link.split(".")
         self.file_type = split_link[len(split_link) - 1]
 
-        # Get connection type (close or keep alive)
+        # Get connection type (close or keep alive), referer and host from headers
         connection = ""
         referer = ""
+        host = ""
+        name = ""
+        address = ""
         for head in headers:
             split_head = head.split(":")
             if split_head[0] == "Connection":
                 connection = split_head[1]
             if split_head[0] == "Referer":
                 referer = split_head[1::]
+            if split_head[0] == "Host":
+                host = split_head[1::]
+            if split_head[0] == "Cookie":
+                whole_cookie = split_head[1]
+                split_cookie = whole_cookie.split(";")
+
+                username_cookie = split_cookie[0].split("=")
+                name = username_cookie[1]
+
+                address = split_cookie[1]
+        host = "".join(host)
         referer = "".join(referer)
+        self.username = name.strip()
+        self.address = address.strip()
+        self.host = host.strip()
         self.referer = referer.strip()
         self.connection = connection.strip()
+        self.cookies = [name, address]
 
         # Get body of request if it is post which is the last statement
         if self.method == "POST":
