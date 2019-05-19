@@ -148,7 +148,7 @@ class Server:
                 for k, v in user.items():
                     if k != req.username or v != req.address:
                         return Response(status="HTTP/1.0 403 Forbidden", content="Can't access this file",
-                            connection="close", referer=req.referer, host=req.host)
+                                        connection="close", referer=req.referer, host=req.host)
 
         filename = "htdocs" + req.link
         # Get type of file
@@ -189,6 +189,10 @@ class Server:
         return response
 
     def add_to_cache(self, response, link):
+        # private pages shouldn't be saved in the cache
+        if response.status == "private":
+            return
+
         # Save in cache the response
         self.sem_stats.acquire()
         response_dic = {"response": response, "link": link}
