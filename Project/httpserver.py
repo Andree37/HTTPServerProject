@@ -146,6 +146,7 @@ class Server:
             # Check if client cookie is in the admin list
             for user in self.admin_list:
                 for k, v in user.items():
+                    print(v)
                     if k != req.username or v != req.address:
                         return Response(status="HTTP/1.0 403 Forbidden", content="Can't access this file",
                                         connection="close", referer=req.referer, host=req.host)
@@ -190,7 +191,6 @@ class Server:
         return response
 
     def add_to_cache(self, response, link):
-
 
         # Save in cache the response
         self.sem_stats.acquire()
@@ -385,7 +385,9 @@ class Request:
                 username_cookie = split_cookie[0].split("=")
                 name = username_cookie[1]
 
-                address = split_cookie[1]
+                address_cookie = split_cookie[1].split("=")
+                address = address_cookie[1]
+
         host = "".join(host)
         referer = "".join(referer)
         self.username = name.strip()

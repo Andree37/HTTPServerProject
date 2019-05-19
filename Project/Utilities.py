@@ -95,4 +95,3 @@ class Statistics:
                 if v == link:
                     return item["response"]
         return None
-
