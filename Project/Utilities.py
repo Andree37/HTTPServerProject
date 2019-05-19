@@ -95,3 +95,7 @@ class Statistics:
                 if v == link:
                     return item["response"]
         return None
+
+class Streams:
+    def __init__(self):
+        self.streamaddrs = {}
